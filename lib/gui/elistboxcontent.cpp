@@ -328,8 +328,6 @@ void eListboxPythonStringContent::paint(gPainter &painter, eWindowStyle &style, 
 	if (selected && (!local_style || !local_style->m_selection) && (!local_style || !local_style->is_set.border))
 		style.drawFrame(painter, eRect(offs, itemRect.size()), eWindowStyle::frameListboxEntry);
 
-	bool sep = false;
-
 	if (validitem)
 	{
 		int gray = 0;
@@ -880,6 +878,9 @@ void eListboxPythonConfigContent::paint(gPainter &painter, eWindowStyle &style, 
 	// Draw frame here so to be drawn under icons
 	if (selected && (!local_style || !local_style->m_selection) && (!local_style || !local_style->is_set.border))
 		style.drawFrame(painter, eRect(offset, m_itemsize), eWindowStyle::frameListboxEntry);
+
+	bool sep = false;
+
 	if (m_list && cursorValid)
 	{
 		/* get current list item */
