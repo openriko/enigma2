@@ -328,6 +328,8 @@ void eListboxPythonStringContent::paint(gPainter &painter, eWindowStyle &style, 
 	if (selected && (!local_style || !local_style->m_selection) && (!local_style || !local_style->is_set.border))
 		style.drawFrame(painter, eRect(offs, itemRect.size()), eWindowStyle::frameListboxEntry);
 
+	bool sep = false;
+
 	if (validitem)
 	{
 		int gray = 0;
@@ -933,6 +935,16 @@ void eListboxPythonConfigContent::paint(gPainter &painter, eWindowStyle &style, 
 				text = PyTuple_GET_ITEM(text, 0);
 				text = PyObject_Str(text); /* creates a new object - old object was borrowed! */
 				string = (text && PyUnicode_Check(text)) ? PyUnicode_AsUTF8(text) : "<not-a-string>";
+				if (!strcmp(string,"---") && PyTuple_Size(item) == 1) {
+					sep = true;
+					if (m_sepline_color_set) {
+						painter.setForegroundColor(m_sepline_color);
+					}
+					//eDebug("[CONFIGCONTENT] Go to step 1 fill line thick: %d; at pos x: %d, y: %d, w: %d, h: %d", m_sepline_thickness, offset.x() + 15, offset.y() + (m_itemsize.height() - m_sepline_thickness)/2, m_itemsize.width() - 30, m_sepline_thickness);
+					painter.fill(eRect(offset.x()+15, offset.y() + (m_itemsize.height() - m_sepline_thickness)/2, m_itemsize.width() - 30, m_sepline_thickness));
+				} else {
+					painter.renderText(eRect(ePoint(offset.x()+15, offset.y()), m_itemsize), string, alphablendflag | gPainter::RT_HALIGN_LEFT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
+				}
 				Py_XDECREF(text);
 			}
 			else
@@ -941,235 +953,237 @@ void eListboxPythonConfigContent::paint(gPainter &painter, eWindowStyle &style, 
 				string = (text && PyUnicode_Check(text)) ? PyUnicode_AsUTF8(text) : "<not-a-string>";
 				Py_XDECREF(text);
 			}
+			if (!sep) {
+				// when we have no label, align value to the left. (FIXME: don't we want to specifiy this individually?)
+				int value_alignment_left = !*string;
 
-			// when we have no label, align value to the left. (FIXME: don't we want to specifiy this individually?)
-			int value_alignment_left = !*string;
+				/* now, handle the value. get 2nd part from tuple*/
+				if (PyTuple_Size(item) >= 2) // when no 2nd entry is in tuple this is a non selectable entry without config part
+					value = PyTuple_GET_ITEM(item, 1);
 
-			/* now, handle the value. get 2nd part from tuple*/
-			if (PyTuple_Size(item) >= 2) // when no 2nd entry is in tuple this is a non selectable entry without config part
-				value = PyTuple_GET_ITEM(item, 1);
+				ePtr<gFont> fnt3;
+				int leftOffset = style.getValue(eWindowStyleSkinned::valueEntryLeftOffset);
 
-			ePtr<gFont> fnt3;
-			int leftOffset = style.getValue(eWindowStyleSkinned::valueEntryLeftOffset);
-
-			if (value)
-			{
-				ePyObject args = PyTuple_New(1);
-				PyTuple_SET_ITEM(args, 0, PyLong_FromLong(selected));
-
-				/* CallObject will call __call__ which should return the value tuple */
-				value = PyObject_CallObject(value, args);
-
-				if (PyErr_Occurred())
-					PyErr_Print();
-
-				Py_DECREF(args);
-				/* the PyInt was stolen. */
-				painter.setFont(fnt);
-			}
-			else
-			{
-
-				if(local_style)
-					fnt3 = local_style->m_headerfont;
-
-				if (!fnt3)
-					style.getFont(eWindowStyle::fontHeader, fnt3);
-
-				leftOffset = style.getValue(eWindowStyleSkinned::valueHeaderLeftOffset);
-				painter.setFont(fnt3);
-
-				if (local_style && local_style->is_set.header_color)
-					painter.setForegroundColor(local_style->m_header_color);
-
-			}
-
-			// Separator
-			if (!strcmp(string,"---") && PyTuple_Size(item) == 1 && local_style) 
-			{
-
-				if (local_style->is_set.separator_color)
-					painter.setForegroundColor(local_style->m_separator_color);
-
-				eRect sep_sz = local_style->m_separator_size;
-
-				int top = sep_sz.y();
-				if ( top > m_itemsize.height() )
-					top = -1;
-				top = (top != -1) ? top : (m_itemsize.height() / 2) - (sep_sz.height() / 2);
-
-				int width = sep_sz.width();
-				int left = sep_sz.x();
-				if(left > m_itemsize.width())
-					left = 0;
-				if(width == -1)
+				if (value)
 				{
-					left = offset.x() + leftOffset + indent;
-					width = m_itemsize.width() - left * 2;
+					ePyObject args = PyTuple_New(1);
+					PyTuple_SET_ITEM(args, 0, PyLong_FromLong(selected));
+
+					/* CallObject will call __call__ which should return the value tuple */
+					value = PyObject_CallObject(value, args);
+
+					if (PyErr_Occurred())
+						PyErr_Print();
+
+					Py_DECREF(args);
+					/* the PyInt was stolen. */
+					painter.setFont(fnt);
 				}
-				
-				painter.fill(eRect(ePoint(left, offset.y() + top), eSize(width, sep_sz.height())));
-				painter.clippop();
-				return;
-			}
-
-
-			eRect labelrect(ePoint(offset.x() + leftOffset + indent, offset.y()), m_itemsize);
-			painter.renderText(labelrect, string, alphablendflag | gPainter::RT_HALIGN_LEFT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
-
-			/*  check if this is really a tuple */
-			if (value && PyTuple_Check(value))
-			{
-				/* convert type to string */
-				ePyObject type = PyTuple_GET_ITEM(value, 0);
-				const char *atype = (type && PyUnicode_Check(type)) ? PyUnicode_AsUTF8(type) : 0;
-
-				if (atype)
+				else
 				{
-					if (!strcmp(atype, "text") || !strcmp(atype, "mtext"))
-					{
-						ePyObject pvalue = PyTuple_GET_ITEM(value, 1);
-						const char *text = (pvalue && PyUnicode_Check(pvalue)) ? PyUnicode_AsUTF8(pvalue) : "<not-a-string>";
-						painter.setFont(fnt2);
-						int flags = value_alignment_left ? gPainter::RT_HALIGN_LEFT : gPainter::RT_HALIGN_RIGHT;
-						int markedpos = -1;
-						int cursor = cursorGet();
-						if (m_text_offset.find(cursor) == m_text_offset.end())
-							m_text_offset[cursor] = 0;
 
-						if (!strcmp(atype, "mtext"))
+					if(local_style)
+						fnt3 = local_style->m_headerfont;
+
+					if (!fnt3)
+						style.getFont(eWindowStyle::fontHeader, fnt3);
+
+					leftOffset = style.getValue(eWindowStyleSkinned::valueHeaderLeftOffset);
+					painter.setFont(fnt3);
+
+					if (local_style && local_style->is_set.header_color)
+						painter.setForegroundColor(local_style->m_header_color);
+
+				}
+
+				// Separator
+				if (!strcmp(string,"---") && PyTuple_Size(item) == 1 && local_style)
+				{
+
+					if (local_style->is_set.separator_color)
+						painter.setForegroundColor(local_style->m_separator_color);
+
+					eRect sep_sz = local_style->m_separator_size;
+
+					int top = sep_sz.y();
+					if ( top > m_itemsize.height() )
+						top = -1;
+					top = (top != -1) ? top : (m_itemsize.height() / 2) - (sep_sz.height() / 2);
+
+					int width = sep_sz.width();
+					int left = sep_sz.x();
+					if(left > m_itemsize.width())
+						left = 0;
+					if(width == -1)
+					{
+						left = offset.x() + leftOffset + indent;
+						width = m_itemsize.width() - left * 2;
+					}
+
+					painter.fill(eRect(ePoint(left, offset.y() + top), eSize(width, sep_sz.height())));
+					painter.clippop();
+					return;
+				}
+
+
+				eRect labelrect(ePoint(offset.x() + leftOffset + indent, offset.y()), m_itemsize);
+				painter.renderText(labelrect, string, alphablendflag | gPainter::RT_HALIGN_LEFT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
+
+				/*  check if this is really a tuple */
+				if (value && PyTuple_Check(value))
+				{
+					/* convert type to string */
+					ePyObject type = PyTuple_GET_ITEM(value, 0);
+					const char *atype = (type && PyUnicode_Check(type)) ? PyUnicode_AsUTF8(type) : 0;
+
+					if (atype)
+					{
+						if (!strcmp(atype, "text") || !strcmp(atype, "mtext"))
 						{
-							if (PyTuple_Size(value) >= 3)
+							ePyObject pvalue = PyTuple_GET_ITEM(value, 1);
+							const char *text = (pvalue && PyUnicode_Check(pvalue)) ? PyUnicode_AsUTF8(pvalue) : "<not-a-string>";
+							painter.setFont(fnt2);
+							int flags = value_alignment_left ? gPainter::RT_HALIGN_LEFT : gPainter::RT_HALIGN_RIGHT;
+							int markedpos = -1;
+							int cursor = cursorGet();
+							if (m_text_offset.find(cursor) == m_text_offset.end())
+								m_text_offset[cursor] = 0;
+
+							if (!strcmp(atype, "mtext"))
 							{
-								ePyObject plist = PyTuple_GET_ITEM(value, 2);
-								int entries = 0;
-								if (plist && PyList_Check(plist))
-									entries = PyList_Size(plist);
-								if (entries != 0)
+								if (PyTuple_Size(value) >= 3)
 								{
-									ePyObject entry = PyList_GET_ITEM(plist, 0);
-									if (PyLong_Check(entry))
+									ePyObject plist = PyTuple_GET_ITEM(value, 2);
+									int entries = 0;
+									if (plist && PyList_Check(plist))
+										entries = PyList_Size(plist);
+									if (entries != 0)
 									{
-										markedpos = PyLong_AsLong(entry);
-										// Assume sequential.
-										if (entries > 1)
-											markedpos |= entries << 16;
+										ePyObject entry = PyList_GET_ITEM(plist, 0);
+										if (PyLong_Check(entry))
+										{
+											markedpos = PyLong_AsLong(entry);
+											// Assume sequential.
+											if (entries > 1)
+												markedpos |= entries << 16;
+										}
 									}
+									/* entry is borrowed */
+									/* plist is 0 or borrowed */
 								}
-								/* entry is borrowed */
-								/* plist is 0 or borrowed */
+							}
+							/* find the width of the label, to prevent the value overwriting it. */
+							ePoint valueoffset = offset;
+							eSize valuesize = m_itemsize;
+							int labelwidth = 0;
+							if (*string)
+							{
+								ePtr<eTextPara> para = new eTextPara(labelrect);
+								para->setFont(fnt);
+								para->renderString(string, 0);
+								labelwidth = para->getBoundBox().width() + leftOffset;
+							}
+							valueoffset.setX(valueoffset.x() + leftOffset + labelwidth);
+							valuesize.setWidth(valuesize.width() - leftOffset - labelwidth - leftOffset);
+							painter.renderText(eRect(valueoffset, valuesize), text, alphablendflag | flags | gPainter::RT_VALIGN_CENTER, border_color, border_size, markedpos, &m_text_offset[cursor]);
+							/* pvalue is borrowed */
+						}
+						else if (!strcmp(atype, "slider"))
+						{
+
+							ePyObject pvalue = PyTuple_GET_ITEM(value, 1);
+							ePyObject pmin = PyTuple_GET_ITEM(value, 2);
+							ePyObject pmax = PyTuple_GET_ITEM(value, 3);
+
+							int value = (pvalue && PyLong_Check(pvalue)) ? PyLong_AsLong(pvalue) : 0;
+							int min = (pmin && PyLong_Check(pmin)) ? PyLong_AsLong(pmin) : 0;
+							int max = (pmax && PyLong_Check(pmax)) ? PyLong_AsLong(pmax) : 100;
+
+							// if min < 0 and max < min -> replace min,max
+							if (min < 0 && max < min)
+							{
+								int newmax = min;
+								min = max;
+								max = newmax;
+							}
+
+							// OLD					int size = (psize && PyLong_Check(psize)) ? PyLong_AsLong(psize) : 100;
+							int value_area = 0;
+
+							/* draw value at the end of the slider */
+							if (eSimpleConfig::getBool("config.usage.show_slider_value", true))
+							{
+								value_area = 100;
+								painter.setFont(fnt2);
+								painter.renderText(eRect(ePoint(offset.x() - leftOffset, offset.y()), m_itemsize), std::to_string(value), alphablendflag | gPainter::RT_HALIGN_RIGHT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
+							}
+							/* calc. slider length */
+							int width = (m_itemsize.width() - m_seperation - leftOffset - value_area) * (value - min) / (max - min);
+							// OLD					int width = (m_itemsize.width() - m_seperation - leftOffset - value_area) * value / size;
+							int height = m_itemsize.height();
+
+							/* draw slider */
+							// painter.fill(eRect(offset.x() + m_seperation, offset.y(), width, height));
+							if (m_slider_height % 2 != height % 2)
+								m_slider_height -= 1;
+							if (m_slider_height + 2 * m_slider_space >= height) // frame out of selector = without frame
+								m_slider_space = 0;
+							int slider_y_offset = (height - m_slider_height) / 2;
+							if (m_slider_space)
+							{
+								ePoint tl(offset.x() + m_seperation, offset.y() + slider_y_offset - m_slider_space - 1);
+								ePoint tr(offset.x() + m_itemsize.width() - leftOffset - value_area - 1, tl.y());
+								ePoint bl(tl.x(), offset.y() + slider_y_offset + m_slider_height + m_slider_space);
+								ePoint br(tr.x(), bl.y());
+								painter.line(tl, tr);
+								painter.line(tr, br);
+								painter.line(br, bl);
+								painter.line(bl, tl);
+								painter.fill(eRect(offset.x() + m_seperation + m_slider_space + 1, offset.y() + slider_y_offset, width - 2 * (m_slider_space + 1), m_slider_height));
+							}
+							else
+							{
+								painter.fill(eRect(offset.x() + m_seperation, offset.y() + slider_y_offset, width, m_slider_height));
+							}
+							/* pvalue is borrowed */
+						}
+						else if (!strcmp(atype, "pixmap"))
+						{
+							ePyObject data;
+							ePyObject ppixmap = PyTuple_GET_ITEM(value, 1);
+
+							if (PyLong_Check(ppixmap) && data) /* if the pixemap is in fact a number, it refers to the 'data' list. */
+								ppixmap = PyTuple_GetItem(data, PyLong_AsLong(ppixmap));
+
+							ePtr<gPixmap> pixmap;
+							if (SwigFromPython(pixmap, ppixmap))
+							{
+								eDebug("[eListboxPythonMultiContent] (Pixmap) get pixmap failed");
+								const char *value = (ppixmap && PyUnicode_Check(ppixmap)) ? PyUnicode_AsUTF8(ppixmap) : "<not-a-string>";
+								painter.setFont(fnt2);
+								if (value_alignment_left)
+									painter.renderText(eRect(ePoint(offset.x() - leftOffset, offset.y()), m_itemsize), value, alphablendflag | gPainter::RT_HALIGN_LEFT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
+								else
+									painter.renderText(eRect(ePoint(offset.x() - leftOffset, offset.y()), m_itemsize), value, alphablendflag | gPainter::RT_HALIGN_RIGHT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
+							}
+							else
+							{
+								eRect rect(ePoint(m_itemsize.width() - pixmap->size().width() - leftOffset, offset.y() + (m_itemsize.height() - pixmap->size().height()) / 2), pixmap->size());
+								painter.clip(rect);
+								painter.blit(pixmap, rect.topLeft(), rect, gPainter::BT_ALPHABLEND);
+								painter.clippop();
 							}
 						}
-						/* find the width of the label, to prevent the value overwriting it. */
-						ePoint valueoffset = offset;
-						eSize valuesize = m_itemsize;
-						int labelwidth = 0;
-						if (*string)
-						{
-							ePtr<eTextPara> para = new eTextPara(labelrect);
-							para->setFont(fnt);
-							para->renderString(string, 0);
-							labelwidth = para->getBoundBox().width() + leftOffset;
-						}
-						valueoffset.setX(valueoffset.x() + leftOffset + labelwidth);
-						valuesize.setWidth(valuesize.width() - leftOffset - labelwidth - leftOffset);
-						painter.renderText(eRect(valueoffset, valuesize), text, alphablendflag | flags | gPainter::RT_VALIGN_CENTER, border_color, border_size, markedpos, &m_text_offset[cursor]);
-						/* pvalue is borrowed */
 					}
-					else if (!strcmp(atype, "slider"))
-					{
-
-						ePyObject pvalue = PyTuple_GET_ITEM(value, 1);
-						ePyObject pmin = PyTuple_GET_ITEM(value, 2);
-						ePyObject pmax = PyTuple_GET_ITEM(value, 3);
-
-						int value = (pvalue && PyLong_Check(pvalue)) ? PyLong_AsLong(pvalue) : 0;
-						int min = (pmin && PyLong_Check(pmin)) ? PyLong_AsLong(pmin) : 0;
-						int max = (pmax && PyLong_Check(pmax)) ? PyLong_AsLong(pmax) : 100;
-
-						// if min < 0 and max < min -> replace min,max
-						if (min < 0 && max < min)
-						{
-							int newmax = min;
-							min = max;
-							max = newmax;
-						}
-
-						// OLD					int size = (psize && PyLong_Check(psize)) ? PyLong_AsLong(psize) : 100;
-						int value_area = 0;
-
-						/* draw value at the end of the slider */
-						if (eSimpleConfig::getBool("config.usage.show_slider_value", true))
-						{
-							value_area = 100;
-							painter.setFont(fnt2);
-							painter.renderText(eRect(ePoint(offset.x() - leftOffset, offset.y()), m_itemsize), std::to_string(value), alphablendflag | gPainter::RT_HALIGN_RIGHT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
-						}
-						/* calc. slider length */
-						int width = (m_itemsize.width() - m_seperation - leftOffset - value_area) * (value - min) / (max - min);
-						// OLD					int width = (m_itemsize.width() - m_seperation - leftOffset - value_area) * value / size;
-						int height = m_itemsize.height();
-
-						/* draw slider */
-						// painter.fill(eRect(offset.x() + m_seperation, offset.y(), width, height));
-						if (m_slider_height % 2 != height % 2)
-							m_slider_height -= 1;
-						if (m_slider_height + 2 * m_slider_space >= height) // frame out of selector = without frame
-							m_slider_space = 0;
-						int slider_y_offset = (height - m_slider_height) / 2;
-						if (m_slider_space)
-						{
-							ePoint tl(offset.x() + m_seperation, offset.y() + slider_y_offset - m_slider_space - 1);
-							ePoint tr(offset.x() + m_itemsize.width() - leftOffset - value_area - 1, tl.y());
-							ePoint bl(tl.x(), offset.y() + slider_y_offset + m_slider_height + m_slider_space);
-							ePoint br(tr.x(), bl.y());
-							painter.line(tl, tr);
-							painter.line(tr, br);
-							painter.line(br, bl);
-							painter.line(bl, tl);
-							painter.fill(eRect(offset.x() + m_seperation + m_slider_space + 1, offset.y() + slider_y_offset, width - 2 * (m_slider_space + 1), m_slider_height));
-						}
-						else
-						{
-							painter.fill(eRect(offset.x() + m_seperation, offset.y() + slider_y_offset, width, m_slider_height));
-						}
-						/* pvalue is borrowed */
-					}
-					else if (!strcmp(atype, "pixmap"))
-					{
-						ePyObject data;
-						ePyObject ppixmap = PyTuple_GET_ITEM(value, 1);
-
-						if (PyLong_Check(ppixmap) && data) /* if the pixemap is in fact a number, it refers to the 'data' list. */
-							ppixmap = PyTuple_GetItem(data, PyLong_AsLong(ppixmap));
-
-						ePtr<gPixmap> pixmap;
-						if (SwigFromPython(pixmap, ppixmap))
-						{
-							eDebug("[eListboxPythonMultiContent] (Pixmap) get pixmap failed");
-							const char *value = (ppixmap && PyUnicode_Check(ppixmap)) ? PyUnicode_AsUTF8(ppixmap) : "<not-a-string>";
-							painter.setFont(fnt2);
-							if (value_alignment_left)
-								painter.renderText(eRect(ePoint(offset.x() - leftOffset, offset.y()), m_itemsize), value, alphablendflag | gPainter::RT_HALIGN_LEFT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
-							else
-								painter.renderText(eRect(ePoint(offset.x() - leftOffset, offset.y()), m_itemsize), value, alphablendflag | gPainter::RT_HALIGN_RIGHT | gPainter::RT_VALIGN_CENTER, border_color, border_size);
-						}
-						else
-						{
-							eRect rect(ePoint(m_itemsize.width() - pixmap->size().width() - leftOffset, offset.y() + (m_itemsize.height() - pixmap->size().height()) / 2), pixmap->size());
-							painter.clip(rect);
-							painter.blit(pixmap, rect.topLeft(), rect, gPainter::BT_ALPHABLEND);
-							painter.clippop();
-						}
-					}
+					/* type is borrowed */
 				}
-				/* type is borrowed */
+				else if (value)
+					eWarning("[eListboxPythonConfigContent] second value of tuple is not a tuple.");
+				if (value)
+					Py_DECREF(value);
 			}
-			else if (value)
-				eWarning("[eListboxPythonConfigContent] second value of tuple is not a tuple.");
-			if (value)
-				Py_DECREF(value);
 		}
+
 	}
 
 	painter.clippop();
